@@ -1,12 +1,12 @@
 # Copyright (C) 2018-2020 L-WRT Team
-# Copyright (C) 2021-2022 xiaorouji
+# Copyright (C) 2021-2023 xiaorouji
 #
 # This is free software, licensed under the GNU General Public License v3.
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-passwall
-PKG_VERSION:=4.57
+PKG_VERSION:=4.59
 PKG_RELEASE:=2
 
 PKG_CONFIG_DEPENDS:= \
@@ -76,7 +76,7 @@ config PACKAGE_$(PKG_NAME)_Iptables_Transparent_Proxy
 	select PACKAGE_iptables-mod-tproxy
 	select PACKAGE_kmod-ipt-nat
 	depends on PACKAGE_$(PKG_NAME)
-	default n if ! PACKAGE_firewall4
+	default y if ! PACKAGE_firewall4
 
 config PACKAGE_$(PKG_NAME)_Nftables_Transparent_Proxy
 	bool "Nftables Transparent Proxy"
@@ -86,7 +86,7 @@ config PACKAGE_$(PKG_NAME)_Nftables_Transparent_Proxy
 	select PACKAGE_kmod-nft-tproxy
 	select PACKAGE_kmod-nft-nat
 	depends on PACKAGE_$(PKG_NAME)
-	default n if PACKAGE_firewall4
+	default y if PACKAGE_firewall4
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Brook
 	bool "Include Brook"
@@ -99,7 +99,7 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_ChinaDNS_NG
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Haproxy
 	bool "Include Haproxy"
-	default n if aarch64||arm||i386||x86_64
+	default y if aarch64||arm||i386||x86_64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Hysteria
 	bool "Include Hysteria"
@@ -112,16 +112,16 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_NaiveProxy
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Shadowsocks_Libev_Client
 	bool "Include Shadowsocks Libev Client"
-	default n
+	default y
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Shadowsocks_Libev_Server
 	bool "Include Shadowsocks Libev Server"
-	default n if aarch64||arm||i386||x86_64
+	default y if aarch64||arm||i386||x86_64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Shadowsocks_Rust_Client
 	bool "Include Shadowsocks Rust Client"
 	depends on aarch64||arm||i386||mips||mipsel||x86_64
-	default n if aarch64
+	default y if aarch64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Shadowsocks_Rust_Server
 	bool "Include Shadowsocks Rust Server"
@@ -130,7 +130,7 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_Shadowsocks_Rust_Server
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_ShadowsocksR_Libev_Client
 	bool "Include ShadowsocksR Libev Client"
-	default n
+	default y
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_ShadowsocksR_Libev_Server
 	bool "Include ShadowsocksR Libev Server"
@@ -138,7 +138,7 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_ShadowsocksR_Libev_Server
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Simple_Obfs
 	bool "Include Simple-Obfs (Shadowsocks Plugin)"
-	default n
+	default y
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Trojan_GO
 	bool "Include Trojan-GO"
@@ -146,11 +146,11 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_Trojan_GO
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Trojan_Plus
 	bool "Include Trojan-Plus"
-	default n
+	default y
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray
 	bool "Include V2ray"
-	default n if aarch64||arm||i386||x86_64
+	default y if aarch64||arm||i386||x86_64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geodata
 	bool "Include V2ray_Geodata"
@@ -158,11 +158,11 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geodata
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Plugin
 	bool "Include V2ray-Plugin (Shadowsocks Plugin)"
-	default n if aarch64||arm||i386||x86_64
+	default y if aarch64||arm||i386||x86_64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Xray
 	bool "Include Xray"
-	default n if aarch64||arm||i386||x86_64
+	default y if aarch64||arm||i386||x86_64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Xray_Plugin
 	bool "Include Xray-Plugin (Shadowsocks Plugin)"
