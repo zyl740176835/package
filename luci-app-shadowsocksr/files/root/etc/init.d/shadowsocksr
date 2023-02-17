@@ -1,0 +1,271 @@
+#!/bin/sh /etc/rc.common
+#
+# Copyright (C) 2016 Jian Chang <aa65535@live.com>
+#
+# This is free software, licensed under the GNU General Public License v3.
+# See /LICENSE for more information.
+#
+
+START=90
+STOP=15
+
+NAME=shadowsocksr
+EXTRA_COMMANDS="rules watchdog"
+CONFIG_FILE=/var/etc/$NAME.json
+CRON_FILE=/etc/crontabs/root
+
+uci_get_by_name() {
+	local ret=$(uci get $NAME.$1.$2 2>/dev/null)
+	echo ${ret:=$3}
+}
+
+uci_get_by_type() {
+	local ret=$(uci get $NAME.@$1[0].$2 2>/dev/null)
+	echo ${ret:=$3}
+}
+
+uci_bool_by_name() {
+	case "$(uci_get_by_name $1 $2)" in
+		1|on|true|yes|enabled) return 0;;
+	esac
+	return 1
+}
+
+valid_server() {
+	[ "$(uci get $NAME.$1 2>/dev/null)" = "servers" ]
+}
+
+get_arg_udp() {
+	local server=$(uci_get_by_type transparent_proxy udp_relay_server)
+	[ "$server" = "same" ] || valid_server $server && echo "-u"
+}
+
+get_arg_out() {
+	case "$(uci_get_by_type access_control self_proxy 1)" in
+		1) echo "-o";;
+		2) echo "-O";;
+	esac
+}
+
+get_arg_ota() {
+	uci_bool_by_name $1 auth && echo "-A"
+}
+
+get_arg_tfo() {
+	if [ "3" = "$(cat /proc/sys/net/ipv4/tcp_fastopen 2>/dev/null)" ]; then
+		uci_bool_by_name $1 fast_open && echo "--fast-open"
+	fi
+}
+
+get_arg_obfs() {
+	local obfs=$(uci_get_by_name $1 obfs)
+	[ -n "$obfs" ] && echo "--obfs $obfs"
+}
+
+get_arg_obfs_host() {
+	[ -n "$(uci_get_by_name $1 obfs)" ] && \
+		echo "--obfs-host $(uci_get_by_name $1 obfs_host cloudfront.net)"
+}
+
+get_server_ips() {
+	echo $(uci_get_by_name $1 server)
+}
+
+get_lan_hosts() {
+	uci_bool_by_name $1 enable && \
+		echo "$(uci_get_by_name $1 type),$(uci_get_by_name $1 host)"
+}
+
+gen_config_file() {
+	cat <<-EOF >$CONFIG_FILE
+		{
+		    "server": "$(uci_get_by_name $1 server)",
+		    "server_port": $(uci_get_by_name $1 server_port),
+		    "local_address": "0.0.0.0",
+		    "password": "$(uci_get_by_name $1 password)",
+		    "timeout": $(uci_get_by_name $1 timeout 60),
+		    "method": "$(uci_get_by_name $1 encrypt_method)",
+		    "protocol": "$(uci_get_by_name $1 plugin_protocol)",
+		    "protocol_param": "$(uci_get_by_name $1 plugin_protocol_param)",
+		    "obfs": "$(uci_get_by_name $1 plugin_obfs)",
+		    "obfs_param": "$(uci_get_by_name $1 plugin_obfs_param)"
+		}
+EOF
+}
+
+start_rules() {
+	config_load $NAME
+	/usr/bin/ssr-rules \
+		-s "$(config_foreach get_server_ips servers)" \
+		-l "$(uci_get_by_type transparent_proxy local_port 1234)" \
+		-i "$(uci_get_by_type access_control wan_bp_list)" \
+		-b "$(uci_get_by_type access_control wan_bp_ips)" \
+		-w "$(uci_get_by_type access_control wan_fw_ips)" \
+		-I "$(uci_get_by_type access_control lan_ifaces)" \
+		-d "$(uci_get_by_type access_control lan_target)" \
+		-a "$(config_foreach get_lan_hosts lan_hosts)" \
+		-e "$(uci_get_by_type access_control ipt_ext)" \
+		$(get_arg_out) $(get_arg_udp)
+
+	if [ "Z$?" = "Z0" -a "Z$(uci_get_by_type access_control wan_bp_list)" = "Z/dev/flag_gfwlist" ]; then
+		[ $(ipset list gfwlist | wc -l) -lt 1 ] && /etc/init.d/dnsmasq-extra restart
+		idx=$(($(iptables -t nat -L SSR_SPEC_WAN_AC | grep all | sed -n -e '/ssr_spec_dst_bp/=') +1))
+		iptables -t nat    -I SSR_SPEC_WAN_AC $idx -m set ! --match-set gfwlist dst -j RETURN 2>/dev/null \
+			|| echo "# Transparent Proxy: TCP    NOT ENABLED"
+		iptables -t mangle -I SSR_SPEC_WAN_AC $idx -m set ! --match-set gfwlist dst -j RETURN 2>/dev/null \
+			|| echo "# Transparent Proxy: UDP    NOT ENABLED"
+	fi
+}
+
+rules() {
+	if !(pidof ssr-redir >/dev/null); then
+		logger -st $NAME -p3 "ssr-redir not running."
+		return 1
+	fi
+	start_rules || /usr/bin/ssr-rules -f
+}
+
+start_redir() {
+	gen_config_file $1
+	ssr-redir -c $CONFIG_FILE $2 \
+		-l $(uci_get_by_type transparent_proxy local_port 1234) \
+		-f /var/run/ssr-redir$3.pid
+}
+
+ssr_redir() {
+	command -v ssr-redir >/dev/null 2>&1 || return 1
+	local main_server=$(uci_get_by_type transparent_proxy main_server)
+	valid_server $main_server || return 1
+	local udp_relay_server=$(uci_get_by_type transparent_proxy udp_relay_server)
+	[ "$udp_relay_server" = "same" ] && udp_relay_server=$main_server
+
+	uci_get_by_name $main_server      server | sed "s/^/server=\//;s/$/\/114.114.115.115/"    >  /var/dnsmasq.d/ssr.conf
+	uci_get_by_name $main_server      server | sed "s/^/server=\//;s/$/\/208.67.222.222#443/" >> /var/dnsmasq.d/ssr.conf
+	uci_get_by_name $udp_relay_server server | sed "s/^/server=\//;s/$/\/114.114.115.115/"    >> /var/dnsmasq.d/ssr.conf
+	uci_get_by_name $udp_relay_server server | sed "s/^/server=\//;s/$/\/208.67.222.222#443/" >> /var/dnsmasq.d/ssr.conf
+	( sort -u /var/dnsmasq.d/ssr.conf  | sed '/\/\//d' > /var/dnsmasq.d/ssr-servers.conf ) && rm -f /var/dnsmasq.d/ssr.conf
+	/etc/init.d/dnsmasq restart
+
+	if [ "$udp_relay_server" = "$main_server" ]; then
+		start_redir $main_server -u
+	elif valid_server $udp_relay_server; then
+		start_redir $main_server
+		start_redir $udp_relay_server -U -udp
+	else
+		start_redir $main_server
+	fi
+
+	sleep 2
+}
+
+start_local() {
+	gen_config_file $1
+	ssr-local -c $CONFIG_FILE -u $(get_arg_tfo $1) \
+		-l $(uci_get_by_type socks5_proxy local_port 1080) \
+		-f /var/run/ssr-local.pid
+}
+
+ssr_local() {
+	command -v ssr-local >/dev/null 2>&1 || return 0
+	local server=$(uci_get_by_type socks5_proxy server)
+	valid_server $server && start_local $server
+}
+
+start_tunnel() {
+	gen_config_file $1
+	ssr-tunnel -c $CONFIG_FILE -u \
+		-l $(uci_get_by_type port_forward local_port 5300) \
+		-L $(uci_get_by_type port_forward destination 8.8.4.4:53) \
+		-f /var/run/ssr-tunnel.pid
+}
+
+ssr_tunnel() {
+	command -v ssr-tunnel >/dev/null 2>&1 || return 0
+	local server=$(uci_get_by_type port_forward server)
+	valid_server $server && start_tunnel $server
+}
+
+start() {
+	mkdir -p /var/run /var/etc
+	ssr_redir && rules
+	ssr_local
+	ssr_tunnel
+	rm -f $CONFIG_FILE
+	valid_server $(uci_get_by_type transparent_proxy main_server) && add_cron
+}
+
+delay_start() {
+	(sleep $1 && start >/dev/null 2>&1) &
+}
+
+boot() {
+	local delay=$(uci_get_by_type general start_delay 0)
+	if [ "$delay" -gt 0 ]; then
+		delay_start $delay
+	else
+		start
+	fi
+	return 0
+}
+
+kill_all() {
+	kill -9 $(pidof $@) >/dev/null 2>&1
+}
+
+stop() {
+	/usr/bin/ssr-rules -f
+	kill_all ssr-redir ssr-local ssr-tunnel
+	rm -f /var/dnsmasq.d/ssr.conf /var/dnsmasq.d/ssr-servers.conf 2>/dev/null
+	del_cron
+}
+
+add_cron() {
+	sed -i '/shadowsocksr_watchdog/d' $CRON_FILE
+	echo '0   */3   * * *  rm -f /var/log/shadowsocksr_watchdog.log 2>&1' >> $CRON_FILE
+	echo '*    *    * * * /etc/init.d/shadowsocksr watchdog >> /var/log/shadowsocksr_watchdog.log 2>&1' >> $CRON_FILE
+	/etc/init.d/cron restart
+}
+
+del_cron() {
+	sed -i '/shadowsocksr_watchdog/d' $CRON_FILE
+	/etc/init.d/cron restart
+}
+
+watchdog(){
+	command -v ssr-redir >/dev/null 2>&1 || return 1
+	local main_server=$(uci_get_by_type transparent_proxy main_server)
+	valid_server $main_server || return 1
+	LOGTIME=$(date "+%Y-%m-%d %H:%M:%S")
+	TRPORT=$(uci_get_by_type transparent_proxy local_port 1234)
+	GOOGLE=$(ping -4 www.gstatic.com -c 1 -w 5 2>/dev/null | sed '1{s/[^(]*(//;s/).*//;q}')
+
+	if [ "Z$GOOGLE" = "Z" ]; then
+		echo '['$LOGTIME'] Problem-DNS decteted, restarting shadowsocksR...'
+		[ -f /etc/init.d/dnsmasq-extra ] && /etc/init.d/dnsmasq-extra restart || /etc/init.d/dnsmasq restart
+		stop  >/dev/null 2>&1
+		start >/dev/null 2>&1
+		return 0
+	fi
+
+	iptables -t nat -I OUTPUT -p tcp -d $GOOGLE -j REDIRECT --to-port $TRPORT
+	wget --spider --quiet --tries=1 --timeout=3 $GOOGLE/generate_204 2>/dev/null ||
+		curl --connect-timeout 2 --max-time 7 -s $GOOGLE/generate_204 2>/dev/null ||
+		wget -s -q -T3 $GOOGLE/generate_204
+	if [ "Z$?" = "Z0" ]; then
+		echo '['$LOGTIME'] shadowsocksR No Problem.'
+	else
+		wget --spider --quiet --tries=1 --timeout=3 'www.qq.com/robots.txt' 2>/dev/null ||
+			curl --connect-timeout 2 --max-time 7 -s 'www.qq.com/robots.txt' 2>/dev/null ||
+			wget -s -q -T3 'www.qq.com/robots.txt'
+		if [ "Z$?" = "Z0" ]; then
+			echo '['$LOGTIME'] Problem decteted, restarting shadowsocksR...'
+			stop  >/dev/null 2>&1
+			start >/dev/null 2>&1
+		else
+			echo '['$LOGTIME'] Network Problem. Do nothing.'
+		fi
+	fi
+
+	iptables -t nat -D OUTPUT -p tcp -d $GOOGLE -j REDIRECT --to-port $TRPORT
+	return 0
+}
