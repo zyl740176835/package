@@ -1,4 +1,4 @@
-local api = require "luci.model.cbi.passwall2.api.api"
+local api = require "luci.passwall2.api"
 local appname = api.appname
 local uci = api.uci
 
@@ -109,8 +109,14 @@ protocol:value("trojan", translate("Trojan"))
 protocol:value("wireguard", translate("WireGuard"))
 protocol:value("_balancing", translate("Balancing"))
 protocol:value("_shunt", translate("Shunt"))
+protocol:value("_iface", translate("Custom Interface") .. " (Only Support Xray)")
 protocol:depends("type", "V2ray")
 protocol:depends("type", "Xray")
+
+
+iface = s:option(Value, "iface", translate("Interface"))
+iface.default = "eth1"
+iface:depends("protocol", "_iface")
 
 local nodes_table = {}
 for k, e in ipairs(api.get_valid_nodes()) do
@@ -290,6 +296,9 @@ port:depends({ type = "Xray", protocol = "shadowsocks" })
 port:depends({ type = "Xray", protocol = "trojan" })
 port:depends({ type = "Xray", protocol = "wireguard" })
 
+hysteria_hop = s:option(Value, "hysteria_hop", translate("Additional ports for hysteria hop"))
+hysteria_hop:depends("type", "Hysteria")
+
 username = s:option(Value, "username", translate("Username"))
 username:depends("type", "Naiveproxy")
 username:depends({ type = "V2ray", protocol = "http" })
@@ -437,12 +446,16 @@ timeout:depends("type", "SS")
 timeout:depends("type", "SS-Rust")
 timeout:depends("type", "SSR")
 
-tcp_fast_open = s:option(ListValue, "tcp_fast_open", translate("TCP Fast Open"), translate("Need node support required"))
+tcp_fast_open = s:option(ListValue, "tcp_fast_open", "TCP " .. translate("Fast Open"), translate("Need node support required"))
 tcp_fast_open:value("false")
 tcp_fast_open:value("true")
 tcp_fast_open:depends("type", "SS")
 tcp_fast_open:depends("type", "SS-Rust")
 tcp_fast_open:depends("type", "SSR")
+
+fast_open = s:option(Flag, "fast_open", translate("Fast Open"))
+fast_open.default = "0"
+fast_open:depends("type", "Hysteria")
 
 ss_plugin = s:option(ListValue, "ss_plugin", translate("plugin"))
 ss_plugin:value("none", translate("none"))
@@ -761,6 +774,15 @@ hysteria_recv_window_conn:depends("type", "Hysteria")
 
 hysteria_recv_window = s:option(Value, "hysteria_recv_window", translate("QUIC connection receive window"))
 hysteria_recv_window:depends("type", "Hysteria")
+
+hysteria_handshake_timeout = s:option(Value, "hysteria_handshake_timeout", translate("Handshake Timeout"))
+hysteria_handshake_timeout:depends("type", "Hysteria")
+
+hysteria_idle_timeout = s:option(Value, "hysteria_idle_timeout", translate("Idle Timeout"))
+hysteria_idle_timeout:depends("type", "Hysteria")
+
+hysteria_hop_interval = s:option(Value, "hysteria_hop_interval", translate("Hop Interval"))
+hysteria_hop_interval:depends("type", "Hysteria")
 
 hysteria_disable_mtu_discovery = s:option(Flag, "hysteria_disable_mtu_discovery", translate("Disable MTU detection"))
 hysteria_disable_mtu_discovery:depends("type", "Hysteria")
